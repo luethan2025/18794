@@ -1,4 +1,4 @@
 [submodule "CMU_GO"]
-	path = CMU_GO
+	path = data/dataset/CMU_GO
 	url = https://github.com/luethan2025/CMU_GO
 	branch = main
