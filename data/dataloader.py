@@ -20,7 +20,7 @@ class CMU_GO(data.Dataset):
         if use_rescaled_images:
             dataset_root_path = os.path.join(dataset_path, "rescaled")
         else:
-            dataset_root_path = os.path.join(dataset_path, "dataset")
+            dataset_root_path = os.path.join(dataset_path, "images")
 
         self.dirs_path = [
             os.path.join(dataset_root_path, dir)
@@ -33,9 +33,9 @@ class CMU_GO(data.Dataset):
         ]
 
         self.imgs_path = [
-        os.path.join(dir_path, img_path)
-            for dir_path in self.dirs_path
-                for img_path in os.listdir(dir_path) if img_path.endswith((".jpg", ".jpeg"))
+            os.path.join(dir_path, img_path)
+                for dir_path in self.dirs_path
+                    for img_path in os.listdir(dir_path) if img_path.endswith((".jpg", ".jpeg"))
         ]
 
     def __len__(self):
