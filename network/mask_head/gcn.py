@@ -4,7 +4,7 @@ import numpy as np
 
 from .conv import Conv1x1
 
-class GCN(nn.modules):
+class GCN(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(GCN, self).__init__()
         self._beta = Conv1x1(in_channels, out_channels)
