@@ -15,7 +15,7 @@ class CMU_GO(data.Dataset):
     use_rescaled_images: bool
         Load the rescaled images (defaults to False).
     """
-    def __init__(self, dataset_path, use_rescaled_images=False):
+    def __init__(self, dataset_path="./dataset/CMU_GO", use_rescaled_images=False):
         super(CMU_GO, self).__init__()
         if use_rescaled_images:
             dataset_root_path = os.path.join(dataset_path, "rescaled")
@@ -43,7 +43,7 @@ class CMU_GO(data.Dataset):
 
     def __getitem__(self, idx):
         img_path = self.imgs_path[idx]
-        img = cv2.imread(img_path)
+        img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
 
         head, _ = os.path.split(img_path)
         _, label = os.path.split(head)
