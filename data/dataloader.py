@@ -1,62 +1,39 @@
+from torch.utils.data import Dataset
+import numpy as np
 import os
 import os.path
+from PIL import Image
 
-import cv2
-import torch
-import torch.utils.data as data
+class SegmentationDataset(Dataset):
+    def __init__(self, base_dir, images_dir="Images", mask_dir="Mask", transforms=None):
+        self.images_dir = images_dir
+        self.mask_dir = mask_dir
+        self.transforms = transforms
 
-class CMU_GO(data.Dataset):
-    """Dataset iterator.
+        self.images = []
+        self.masks = []
 
-    Parameters
-    ----------
-    dataset_path: string
-        Path to parent directory with subdirectories containing images.
-    use_rescaled_images: bool
-        Load the rescaled images (defaults to False).
-    """
-    def __init__(self, dataset_path="./dataset/CMU_GO", use_rescaled_images=False):
-        super(CMU_GO, self).__init__()
-        if use_rescaled_images:
-            dataset_root_path = os.path.join(dataset_path, "rescaled")
-        else:
-            dataset_root_path = os.path.join(dataset_path, "images")
+        for class_name in os.listdir(base_dir):
+            class_images_dir = os.path.join(base_dir, class_name, images_dir)
+            self.images.extend([
+                os.path.join(class_images_dir, file)
+                    for file in os.listdir(class_images_dir) if file.endswith('jpg')
+            ])
 
-        self.dirs_path = [
-            os.path.join(dataset_root_path, dir)
-                for dir in os.listdir(dataset_root_path)
-        ]
-
-        self.labels = [
-            os.path.split(dir_path)[-1]
-                for dir_path in self.dirs_path
-        ]
-
-        self.imgs_path = [
-            os.path.join(dir_path, img_path)
-                for dir_path in self.dirs_path
-                    for img_path in os.listdir(dir_path) if img_path.endswith((".jpg", ".jpeg"))
-        ]
+            class_mask_dir = os.path.join(base_dir, class_name, mask_dir)
+            self.masks.extend([
+                os.path.join(class_mask_dir, file)
+                    for file in os.listdir(class_mask_dir) if file.endswith('png')
+            ])
+    
+        assert (len(self.images) == len(self.masks))
 
     def __len__(self):
-        return len(self.imgs_path)
-
+        return len(self.masks)
+    
     def __getitem__(self, idx):
-        img_path = self.imgs_path[idx]
-        img = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
-
-        head, _ = os.path.split(img_path)
-        _, label = os.path.split(head)
-        if label not in self.labels:
-            raise ValueError(f"saw {label} expected a label from {self.labels}")
-
-        return torch.from_numpy(img), label
-
-    def __repr__(self):
-        header = "labels:"
-        labels = "\n".join(
-                    " ".join(f"{label:<15}"
-                        for label in self.labels[i:i + 5])
-                            for i in range(0, len(self.labels), 5)
-                    )
-        return header + labels
+        image = Image.open(self.images[idx]).convert('RGB')
+        target = Image.open(self.masks[idx])
+        if self.transforms:
+            image, target = self.transforms(image, target)
+        return image, target
