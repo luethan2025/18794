@@ -68,8 +68,7 @@ class VOCToy(data.Dataset):
         images = [os.path.join(image_dir, x + ".jpg") for x in file_names]
         masks = [os.path.join(mask_dir, x + ".png") for x in file_names]
 
-        idx = [0]
-        #  idx = random.sample(range(len(images)), k=num_img)
+        idx = random.sample(range(len(images)), k=num_img)
         self.images = [images[i] for i in idx]
         self.masks = [masks[i] for i in idx]
         assert (len(self.images) == len(self.masks))

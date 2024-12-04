@@ -22,7 +22,7 @@ def get_argparser():
 def main():
     opts = get_argparser().parse_args()
     transform = et.ExtCompose([
-        et.ExtRandomEllipse(0, (200, 250)),
+        et.ExtRandomBox(0, (200, 250)),
         et.ExtToTensor()
     ])
     dst = VOCToy(root=opts.data_root, image_set=opts.data_type, num_img=opts.num_img, transform=transform)
