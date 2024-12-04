@@ -1,86 +1,179 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from torch.nn import functional as F
+from .backbones import import_backbone
 
-class DoubleConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, mid_channels=None):
-        super(DoubleConvBlock, self).__init__()
-        if mid_channels is None:
-            mid_channels = out_channels
-        
+class Conv2dSeparable(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=False):
+        super(Conv2dSeparable, self).__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
-    
-    def forward(self, x):
-        return self.conv(x)
- 
-class DownsampleConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(DownsampleConvBlock, self).__init__()
-        self.conv = nn.Sequential(
-            nn.MaxPool2d(2),
-            DoubleConvBlock(in_channels, out_channels)
+            nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size,
+                      stride=stride, padding=padding, groups=in_channels, bias=bias),
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1,
+                      stride=1, padding=0, bias=bias)
         )
 
     def forward(self, x):
         return self.conv(x)
 
-class UpsampleConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, bilinear=False):
-        super(UpsampleConvBlock, self).__init__()
-        if bilinear:
-            self.upsample_block = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-            self.conv_block = DoubleConvBlock(in_channels, out_channels, mid_channels=in_channels//2)
+class Conv2dSeparableTranspose(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, bias=False):
+        super(Conv2dSeparableTranspose, self).__init__()
+        self.conv = nn.Sequential(
+            nn.ConvTranspose2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size,
+                               stride=stride, padding=padding, output_padding=output_padding, groups=in_channels, bias=bias),
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1,
+                      stride=1, padding=0, bias=bias)
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+class UpsampleBlock(nn.Module):
+    def __init__(self, in_channels, out_channels=None, skip_in=0, use_bn=True, parametric=False, use_sc=False):
+        super(UpsampleBlock, self).__init__()
+
+        self.parametric = parametric
+        out_channels = (in_channels / 2) if out_channels is None else out_channels
+
+        if parametric:
+            if not use_sc:
+                self.up = nn.ConvTranspose2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(4, 4),
+                                            stride=2, padding=1, output_padding=0, bias=(not use_bn))
+            else:
+                self.up = Conv2dSeparableTranspose(in_channels=in_channels, out_channels=out_channels, kernel_size=(4, 4),
+                                                   stride=2, padding=1, output_padding=0, bias=(not use_bn))
+            self.bn1 = nn.BatchNorm2d(out_channels) if use_bn else None
         else:
-            self.upsample_block = nn.ConvTranspose2d(in_channels, in_channels//2, kernel_size=2, stride=2, padding=0)
-            self.conv_block = DoubleConvBlock(in_channels, out_channels)
+            self.up = None
+            in_channels = in_channels + skip_in # concatenate skip connection channels
+            if not use_sc:
+                self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(3, 3),
+                                       stride=1, padding=1, bias=(not use_bn))
+            else:
+                self.conv1 = Conv2dSeparable(in_channels=in_channels, out_channels=out_channels, kernel_size=(3, 3),
+                                             stride=1, padding=1, bias=(not use_bn))
+            self.bn1 = nn.BatchNorm2d(out_channels) if use_bn else None
 
-    def forward(self, x1, x2):
-        x1 = self.upsample_block(x1)
-        y = x2.shape[2] - x1.shape[2]
-        x = x2.shape[3] - x1.shape[3]
+        self.relu = nn.ReLU(inplace=True)
 
-        x1 = F.pad(x1, [x//2, x - x//2,
-                        y//2, y - y//2])
-        x = torch.cat([x2, x1], dim=1)
-        return self.conv_block(x)
+        conv2_in = out_channels if not parametric else (out_channels + skip_in)
+        if not use_sc:
+            self.conv2 = nn.Conv2d(in_channels=conv2_in, out_channels=out_channels, kernel_size=(3, 3),
+                                   stride=1, padding=1, bias=(not use_bn))
+        else:
+            self.conv2 = Conv2dSeparable(in_channels=conv2_in, out_channels=out_channels, kernel_size=(3, 3),
+                                         stride=1, padding=1, bias=(not use_bn))
+        self.bn2 = nn.BatchNorm2d(out_channels) if use_bn else None
+
+    def forward(self, x, skip_connection=None):
+        x = self.up(x) if self.parametric else F.interpolate(x, size=None, scale_factor=2, mode='bilinear', align_corners=None)
+        if self.parametric:
+            x = self.bn1(x) if self.bn1 is not None else x
+            x = self.relu(x)
+
+        if skip_connection is not None:
+            x = torch.cat([x, skip_connection], dim=1)
+
+        if not self.parametric:
+            x = self.conv1(x)
+            x = self.bn1(x) if self.bn1 is not None else x
+            x = self.relu(x)
+        x = self.conv2(x)
+        x = self.bn2(x) if self.bn2 is not None else x
+        x = self.relu(x)
+
+        return x
 
 class UNet(nn.Module):
-    def __init__(self, in_channels, n_classes, conv_dim=64, bilinear=False):
+    """U-Net (https://arxiv.org/pdf/1505.04597.pdf) implementation with pre-trained torchvision backbones.
+    """
+    def __init__(self,
+                 backbone_name='resnet18',
+                 pretrained=True,
+                 encoder_freeze=False,
+                 classes=21,
+                 decoder_filters=(256, 128, 64, 32, 16),
+                 parametric_upsampling=True,
+                 shortcut_features='default',
+                 decoder_use_batchnorm=True,
+                 use_separable_conv=False):
         super(UNet, self).__init__()
-        self.double_conv = DoubleConvBlock(in_channels, conv_dim)
+        self.backbone_name = backbone_name
 
-        self.d1 = DownsampleConvBlock(conv_dim, conv_dim*2)
-        self.d2 = DownsampleConvBlock(conv_dim*2, conv_dim*4)
-        self.d3 = DownsampleConvBlock(conv_dim*4, conv_dim*8)
-        self.d4 = DownsampleConvBlock(conv_dim*8, conv_dim*16)
+        self.backbone, self.shortcut_features, self.bb_out_name = import_backbone(backbone_name, pretrained=pretrained)
+        shortcut_chs, bb_out_chs = self.infer_skip_channels()
+        if shortcut_features != 'default':
+            self.shortcut_features = shortcut_features
 
-        scale_factor = 2 if bilinear else 1
-        
-        self.u1 = UpsampleConvBlock(conv_dim*16, (conv_dim*8)//scale_factor, bilinear=bilinear)
-        self.u2 = UpsampleConvBlock(conv_dim*8, (conv_dim*4)//scale_factor, bilinear=bilinear)
-        self.u3 = UpsampleConvBlock(conv_dim*4, (conv_dim*2)//scale_factor, bilinear=bilinear)
-        self.u4 = UpsampleConvBlock(conv_dim*2, conv_dim, bilinear=bilinear)
-    
-        self.classifier = nn.Conv2d(conv_dim, n_classes, kernel_size=1, stride=1, padding=0)
+        # build decoder part
+        self.upsample_blocks = nn.ModuleList()
+        decoder_filters = decoder_filters[:len(self.shortcut_features)]  # avoiding having more blocks than skip connections
+        decoder_filters_in = [bb_out_chs] + list(decoder_filters[:-1])
+        num_blocks = len(self.shortcut_features)
+        for i, [filters_in, filters_out] in enumerate(zip(decoder_filters_in, decoder_filters)):
+            self.upsample_blocks.append(UpsampleBlock(filters_in, filters_out,
+                                                      skip_in=shortcut_chs[num_blocks-i-1],
+                                                      parametric=parametric_upsampling,
+                                                      use_bn=decoder_use_batchnorm,
+                                                      use_sc=use_separable_conv))
 
-    def forward(self, x):
-        x1 = self.double_conv(x)
-        x2 = self.d1(x1)
-        x3 = self.d2(x2)
-        x4 = self.d3(x3)
-        x5 = self.d4(x4)
+        if not use_separable_conv:
+            self.final_conv = nn.Conv2d(decoder_filters[-1], classes, kernel_size=(1, 1))
+        else:
+            self.final_conv = Conv2dSeparable(decoder_filters[-1], classes, kernel_size=(1, 1))
 
-        x = self.u1(x5, x4)
-        x = self.u2(x, x3)
-        x = self.u3(x, x2)
-        x = self.u4(x, x1)
+        if encoder_freeze:
+            self.freeze_encoder()
 
-        out = self.classifier(x)
-        return out
+        self.replaced_conv1 = False  # for accommodating inputs with different number of channels later
+
+    def freeze_encoder(self):
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+    def forward(self, *input):
+        x, features = self.forward_backbone(*input)
+        for skip_name, upsample_block in zip(self.shortcut_features[::-1], self.upsample_blocks):
+            skip_features = features[skip_name]
+            x = upsample_block(x, skip_features)
+        x = self.final_conv(x)
+        return x
+
+    def forward_backbone(self, x):
+        features = {None: None} if None in self.shortcut_features else dict()
+        for name, child in self.backbone.named_children():
+            x = child(x)
+            if name in self.shortcut_features:
+                features[name] = x
+            if name == self.bb_out_name:
+                break
+        return x, features
+
+    def infer_skip_channels(self):
+        x = torch.zeros(1, 3, 224, 224)
+        has_fullres_features = self.backbone_name.startswith('vgg')
+        channels = [] if has_fullres_features else [0]  # only VGG has features at full resolution
+        for name, child in self.backbone.named_children():
+            x = child(x)
+            if name in self.shortcut_features:
+                channels.append(x.shape[1])
+            if name == self.bb_out_name:
+                out_channels = x.shape[1]
+                break
+        return channels, out_channels
+
+    def get_pretrained_parameters(self):
+        for name, param in self.backbone.named_parameters():
+            if not (self.replaced_conv1 and name == 'conv1.weight'):
+                yield param
+
+    def get_random_initialized_parameters(self):
+        pretrained_param_names = set()
+        for name, param in self.backbone.named_parameters():
+            if not (self.replaced_conv1 and name == 'conv1.weight'):
+                pretrained_param_names.add('backbone.{}'.format(name))
+
+        for name, param in self.named_parameters():
+            if name not in pretrained_param_names:
+                yield param

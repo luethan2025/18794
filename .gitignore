@@ -14,3 +14,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Data
+datasets/data
+!datasets/data/.gitkeep
+
+# Model checkpoints
+*.pth
