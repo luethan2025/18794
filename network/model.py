@@ -67,7 +67,7 @@ class UpsampleBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(out_channels) if use_bn else None
 
     def forward(self, x, skip_connection=None):
-        x = self.up(x) if self.parametric else F.interpolate(x, size=None, scale_factor=2, mode='bilinear', align_corners=None)
+        x = self.up(x) if self.parametric else F.interpolate(x, size=None, scale_factor=2.0, mode='bilinear', align_corners=None)
         if self.parametric:
             x = self.bn1(x) if self.bn1 is not None else x
             x = self.relu(x)

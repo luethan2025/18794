@@ -34,7 +34,7 @@ def main():
         axarr = np.array(axarr).reshape(-1) 
 
         for i, ax in enumerate(axarr):
-            ax.imshow(images[i], cmap='gray')
+            ax.imshow(images[i])
             ax.axis('off')
 
         plt.tight_layout()
