@@ -59,7 +59,7 @@ def get_argparser():
                         help='batch size for validation (default: 32)')
     parser.add_argument("--crop_size", type=int, default=224)
 
-    parser.add_argument("--ckpt", default=None, type=str,
+    parser.add_argument("--ckpt", default="checkpoints/best_mobilenetv2_VOC.pth", type=str,
                         help="restore from checkpoint")
     parser.add_argument("--continue_training", action='store_true', default=False)
 
@@ -88,6 +88,8 @@ def get_train_val_dataset(opts):
             et.ExtRandomScale((0.5, 2.0)),
             et.ExtRandomCrop(size=(opts.crop_size, opts.crop_size), pad_if_needed=True),
             et.ExtRandomHorizontalFlip(),
+            et.ExtRandomBox(0,(50, 100), p=0.85),
+            et.ExtRandomBox(0,(50, 100), p=0.85),
             et.ExtToTensor(),
             et.ExtNormalize(mean=[0.485, 0.456, 0.406],
                             std=[0.229, 0.224, 0.225]),
@@ -97,12 +99,16 @@ def get_train_val_dataset(opts):
             val_transform = et.ExtCompose([
                 et.ExtResize(opts.crop_size),
                 et.ExtCenterCrop(opts.crop_size),
+                et.ExtRandomBox(0,(50, 100), p=0.85),
+                et.ExtRandomBox(0,(50, 100), p=0.85),
                 et.ExtToTensor(),
                 et.ExtNormalize(mean=[0.485, 0.456, 0.406],
                                 std=[0.229, 0.224, 0.225]),
             ])
         else:
             val_transform = et.ExtCompose([
+                et.ExtRandomBox(0,(50, 100), p=0.85),
+                et.ExtRandomBox(0,(50, 100), p=0.85),
                 et.ExtToTensor(),
                 et.ExtNormalize(mean=[0.485, 0.456, 0.406],
                                 std=[0.229, 0.224, 0.225]),
@@ -230,6 +236,7 @@ def main():
     cur_itrs = 0
     cur_epochs = 0
     if opts.ckpt is not None and os.path.isfile(opts.ckpt):
+        print()
         checkpoint = torch.load(opts.ckpt, map_location=torch.device('cpu'))
         model.load_state_dict(checkpoint["model_state"])
         model = nn.DataParallel(model)
@@ -281,7 +288,7 @@ def main():
                 return
 
         # evaluation after each epoch
-        save_ckpt('checkpoints/latest_%s_%s_os.pth' %
+        save_ckpt('checkpoints/latest_%s_%s_occlusion.pth' %
                  (opts.backbone_name, opts.dataset_name))
     
         print("validation...")
@@ -295,7 +302,7 @@ def main():
         if val_score['Mean IoU'] > best_score:  # save best model
             best_score = val_score['Mean IoU']
             print("new best mIOU: ", best_score)
-            save_ckpt('checkpoints/best_%s_%s.pth' %
+            save_ckpt('checkpoints/best_%s_%s_occlusion.pth' %
                      (opts.backbone_name, opts.dataset_name))
             
 if __name__ == '__main__':

@@ -3,74 +3,34 @@ import torch.nn as nn
 from torch.nn import functional as F
 from .backbones import import_backbone
 
-class Conv2dSeparable(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=False):
-        super(Conv2dSeparable, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size,
-                      stride=stride, padding=padding, groups=in_channels, bias=bias),
-            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1,
-                      stride=1, padding=0, bias=bias)
-        )
-
-    def forward(self, x):
-        return self.conv(x)
-
-class Conv2dSeparableTranspose(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, bias=False):
-        super(Conv2dSeparableTranspose, self).__init__()
-        self.conv = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size,
-                               stride=stride, padding=padding, output_padding=output_padding, groups=in_channels, bias=bias),
-            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1,
-                      stride=1, padding=0, bias=bias)
-        )
-
-    def forward(self, x):
-        return self.conv(x)
-
 class UpsampleBlock(nn.Module):
-    def __init__(self, in_channels, out_channels=None, skip_in=0, use_bn=True, parametric=False, use_sc=False):
+    def __init__(self, in_channels, out_channels=None, skip_in=0, use_bn=True, parametric=False):
         super(UpsampleBlock, self).__init__()
 
         self.parametric = parametric
         out_channels = (in_channels / 2) if out_channels is None else out_channels
 
         if parametric:
-            if not use_sc:
-                self.up = nn.ConvTranspose2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(4, 4),
-                                            stride=2, padding=1, output_padding=0, bias=(not use_bn))
-            else:
-                self.up = Conv2dSeparableTranspose(in_channels=in_channels, out_channels=out_channels, kernel_size=(4, 4),
-                                                   stride=2, padding=1, output_padding=0, bias=(not use_bn))
+            self.up = nn.ConvTranspose2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(4, 4),
+                                         stride=2, padding=1, output_padding=0, bias=(not use_bn))
             self.bn1 = nn.BatchNorm2d(out_channels) if use_bn else None
         else:
             self.up = None
             in_channels = in_channels + skip_in # concatenate skip connection channels
-            if not use_sc:
-                self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(3, 3),
-                                       stride=1, padding=1, bias=(not use_bn))
-            else:
-                self.conv1 = Conv2dSeparable(in_channels=in_channels, out_channels=out_channels, kernel_size=(3, 3),
-                                             stride=1, padding=1, bias=(not use_bn))
+            self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(3, 3),
+                                    stride=1, padding=1, bias=(not use_bn))
             self.bn1 = nn.BatchNorm2d(out_channels) if use_bn else None
 
-        self.relu = nn.ReLU(inplace=True)
-
         conv2_in = out_channels if not parametric else (out_channels + skip_in)
-        if not use_sc:
-            self.conv2 = nn.Conv2d(in_channels=conv2_in, out_channels=out_channels, kernel_size=(3, 3),
-                                   stride=1, padding=1, bias=(not use_bn))
-        else:
-            self.conv2 = Conv2dSeparable(in_channels=conv2_in, out_channels=out_channels, kernel_size=(3, 3),
-                                         stride=1, padding=1, bias=(not use_bn))
+        self.conv2 = nn.Conv2d(in_channels=conv2_in, out_channels=out_channels, kernel_size=(3, 3),
+                               stride=1, padding=1, bias=(not use_bn))
         self.bn2 = nn.BatchNorm2d(out_channels) if use_bn else None
 
     def forward(self, x, skip_connection=None):
-        x = self.up(x) if self.parametric else F.interpolate(x, size=None, scale_factor=2.0, mode='bilinear', align_corners=None)
+        x = self.up(x) if self.parametric else F.interpolate(x, size=None, scale_factor=2.0, mode='nearest', align_corners=None)
         if self.parametric:
             x = self.bn1(x) if self.bn1 is not None else x
-            x = self.relu(x)
+            x = nn.functional.relu(x, inplace=True)
 
         if skip_connection is not None:
             x = torch.cat([x, skip_connection], dim=1)
@@ -78,10 +38,10 @@ class UpsampleBlock(nn.Module):
         if not self.parametric:
             x = self.conv1(x)
             x = self.bn1(x) if self.bn1 is not None else x
-            x = self.relu(x)
+            x = nn.functional.relu(x, inplace=True)
         x = self.conv2(x)
         x = self.bn2(x) if self.bn2 is not None else x
-        x = self.relu(x)
+        x = nn.functional.relu(x, inplace=True)
 
         return x
 
@@ -96,8 +56,7 @@ class UNet(nn.Module):
                  decoder_filters=(256, 128, 64, 32, 16),
                  parametric_upsampling=True,
                  shortcut_features='default',
-                 decoder_use_batchnorm=True,
-                 use_separable_conv=False):
+                 decoder_use_batchnorm=True):
         super(UNet, self).__init__()
         self.backbone_name = backbone_name
 
@@ -108,6 +67,8 @@ class UNet(nn.Module):
 
         # build decoder part
         self.upsample_blocks = nn.ModuleList()
+        if self.backbone_name == 'mobilenetv2':
+            decoder_filters = [96, 32, 24, 16, 18]
         decoder_filters = decoder_filters[:len(self.shortcut_features)]  # avoiding having more blocks than skip connections
         decoder_filters_in = [bb_out_chs] + list(decoder_filters[:-1])
         num_blocks = len(self.shortcut_features)
@@ -115,13 +76,9 @@ class UNet(nn.Module):
             self.upsample_blocks.append(UpsampleBlock(filters_in, filters_out,
                                                       skip_in=shortcut_chs[num_blocks-i-1],
                                                       parametric=parametric_upsampling,
-                                                      use_bn=decoder_use_batchnorm,
-                                                      use_sc=use_separable_conv))
+                                                      use_bn=decoder_use_batchnorm))
 
-        if not use_separable_conv:
-            self.final_conv = nn.Conv2d(decoder_filters[-1], classes, kernel_size=(1, 1))
-        else:
-            self.final_conv = Conv2dSeparable(decoder_filters[-1], classes, kernel_size=(1, 1))
+        self.final_conv = nn.Conv2d(decoder_filters[-1], classes, kernel_size=(1, 1))
 
         if encoder_freeze:
             self.freeze_encoder()
@@ -134,9 +91,11 @@ class UNet(nn.Module):
 
     def forward(self, *input):
         x, features = self.forward_backbone(*input)
-        for skip_name, upsample_block in zip(self.shortcut_features[::-1], self.upsample_blocks):
+        for (skip_name, upsample_block) in zip(self.shortcut_features[::-1], self.upsample_blocks):
             skip_features = features[skip_name]
             x = upsample_block(x, skip_features)
+        if self.backbone_name == 'mobilenetv2':
+            x = F.interpolate(x, size=None, scale_factor=2.0, mode='nearest', align_corners=None)
         x = self.final_conv(x)
         return x
 

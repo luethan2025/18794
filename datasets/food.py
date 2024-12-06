@@ -3,41 +3,19 @@ import os
 import numpy as np
 import matplotlib
 from PIL import Image
+from .utils import voc_cmap
 
-def coco_cmap(stuff_start_id=92, stuff_end_id=182, cmap_name='jet', add_things=True, add_unlabeled=True, add_other=True):
-    label_count = stuff_end_id - stuff_start_id + 1
-    cmap_gen = matplotlib.cm.get_cmap(cmap_name, label_count)
-    cmap = cmap_gen(np.arange(label_count))
-    cmap = cmap[:, 0:3]
 
-    cmap = cmap.reshape((-1, 1, 3))
-    hsv = matplotlib.colors.rgb_to_hsv(cmap)
-    hsv[:, 0, 2] = hsv[:, 0, 2] * 0.7
-    cmap = matplotlib.colors.hsv_to_rgb(hsv)
-    cmap = cmap.reshape((-1, 3))
-
-    st0 = np.random.get_state()
-    np.random.seed(42)
-    perm = np.random.permutation(label_count)
-    np.random.set_state(st0)
-    cmap = cmap[perm, :]
-
-    if add_things:
-        thingsPadding = np.zeros((stuff_start_id - 1, 3))
-        cmap = np.vstack((thingsPadding, cmap))
-
-    if add_unlabeled:
-        cmap = np.vstack(((0.0, 0.0, 0.0), cmap))
-
-    if add_other:
-        cmap = np.vstack((cmap, (1.0, 0.843, 0.0)))
-
-    return cmap
-
-class COCOSegmentation(data.Dataset):
+class Food8Segmentation(data.Dataset):
+    """`FOOD8 in VOC style <https://www.kaggle.com/datasets/mm862215/food8-segmentation-dataset?resource=download/>`_ Segmentation Dataset.
+    Args:
+        root (string): Root directory of the Food8 Dataset.
+        image_set (string, optional): Select the image_set to use, ``train``, ``trainval`` or ``val``.
+        transform (callable, optional): A function/transform that  takes in an PIL image
+            and returns a transformed version. E.g, ``transforms.RandomCrop``.
+    """
     # color map for each category
-    cmap = coco_cmap()
-    
+    cmap = voc_cmap()    
     def __init__(self,
                  root,
                  image_set='train',
@@ -47,16 +25,16 @@ class COCOSegmentation(data.Dataset):
         self.transform = transform
         
         self.image_set = image_set
-        base_dir = "COCOdevkit/COCO"
-        coco_root = os.path.join(self.root, base_dir)
-        image_dir = os.path.join(coco_root, 'JPEGImages')
+        base_dir = "Food8devkit/food8"
+        food8_root = os.path.join(self.root, base_dir)
+        image_dir = os.path.join(food8_root, 'JPEGImages')
 
-        if not os.path.isdir(coco_root):
+        if not os.path.isdir(food8_root):
             raise RuntimeError('Dataset not found or corrupted.' +
                                ' Please check your data download.')
         
-        mask_dir = os.path.join(coco_root, 'SegmentationClass')
-        splits_dir = os.path.join(coco_root, 'ImageSets/Segmentation')
+        mask_dir = os.path.join(food8_root, 'SegmentationClass')
+        splits_dir = os.path.join(food8_root, 'ImageSets/Segmentation')
         split_f = os.path.join(splits_dir, image_set.rstrip('\n') + '.txt')
 
         if not os.path.exists(split_f):

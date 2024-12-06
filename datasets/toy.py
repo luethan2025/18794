@@ -3,28 +3,9 @@ import os
 from PIL import Image
 import numpy as np
 import random
+from .utils import voc_cmap
 
-def voc_cmap(N=256, normalized=False):
-    def bitget(byteval, idx):
-        return ((byteval & (1 << idx)) != 0)
-
-    dtype = 'float32' if normalized else 'uint8'
-    cmap = np.zeros((N, 3), dtype=dtype)
-    for i in range(N):
-        r = g = b = 0
-        c = i
-        for j in range(8):
-            r = r | (bitget(c, 0) << 7-j)
-            g = g | (bitget(c, 1) << 7-j)
-            b = b | (bitget(c, 2) << 7-j)
-            c = c >> 3
-
-        cmap[i] = np.array([r, g, b])
-
-    cmap = cmap/255 if normalized else cmap
-    return cmap
-
-class VOCToy(data.Dataset):
+class Toy(data.Dataset):
     """`Pascal VOC <http://host.robots.ox.ac.uk/pascal/VOC/>`_ Segmentation Dataset.
     Args:
         root (string): Root directory of the VOC Dataset.
@@ -38,6 +19,7 @@ class VOCToy(data.Dataset):
     def __init__(self,
                  root,
                  num_img,
+                 base_dir="VOCdevkit/VOC2012",
                  image_set='train',
                  transform=None):
 
@@ -45,16 +27,15 @@ class VOCToy(data.Dataset):
         self.transform = transform
         
         self.image_set = image_set
-        base_dir = "VOCdevkit/VOC2012"
-        voc_root = os.path.join(self.root, base_dir)
-        image_dir = os.path.join(voc_root, 'JPEGImages')
+        dst_root = os.path.join(self.root, base_dir)
+        image_dir = os.path.join(dst_root, 'JPEGImages')
 
-        if not os.path.isdir(voc_root):
+        if not os.path.isdir(dst_root):
             raise RuntimeError('Dataset not found or corrupted.' +
                                ' Please check your data download.')
         
-        mask_dir = os.path.join(voc_root, 'SegmentationClass')
-        splits_dir = os.path.join(voc_root, 'ImageSets/Segmentation')
+        mask_dir = os.path.join(dst_root, 'SegmentationClass')
+        splits_dir = os.path.join(dst_root, 'ImageSets/Segmentation')
         split_f = os.path.join(splits_dir, image_set.rstrip('\n') + '.txt')
 
         if not os.path.exists(split_f):

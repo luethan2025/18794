@@ -26,7 +26,7 @@ def import_backbone(name, pretrained=True):
         feature_names = ['5', '12', '22', '32', '42']
         backbone_output = '43'
     elif name == 'mobilenetv2':
-        feature_names = ['2', '4', '7', '14']
+        feature_names = [None, '2', '6', '11']
         backbone_output = '18'
 
     return backbone, feature_names, backbone_output

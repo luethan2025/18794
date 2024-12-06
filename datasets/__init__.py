@@ -1,3 +1,3 @@
 from .voc import VOCSegmentation
-from .coco import COCOSegmentation
+from .food import Food8Segmentation
 from .toy import *
