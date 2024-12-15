@@ -6,9 +6,10 @@ import random
 import argparse
 import numpy as np
 import pickle
+# from backbones_unet.model.unet import Unet
 from network import UNet
 from torch.utils import data
-from datasets import VOCSegmentation
+from datasets import VOCSegmentation, Food8Segmentation
 from utils import ext_transforms as et
 from metrics import StreamSegMetrics
 from network import Goon
@@ -131,11 +132,14 @@ class ExtAddBlackSquare:
         return image, target
 def get_argparser():
     parser = argparse.ArgumentParser()
+    dataset_choices = ['voc', 'food8']
 
     # Datset Options
     parser.add_argument("--data_root", type=str, default='./datasets/data',
                         help="path to Dataset")
-    parser.add_argument("--num_classes", type=int, default=None,
+    parser.add_argument("--dataset_name", type=str, default='food8',
+                        choices=dataset_choices, help="dataset name")
+    parser.add_argument("--num_classes", type=int, default=9,
                         help="num classes (default: None)")
     # Deeplab Options
     available_models = sorted(name for name in network.modeling.__dict__ if name.islower() and \
@@ -167,9 +171,9 @@ def get_argparser():
                         help='batch size for validation (default: 32)')
     parser.add_argument("--crop_size", type=int, default=224)
 
-    parser.add_argument("--ckpt", default="checkpoints/main_VOC.pth", type=str,
+    parser.add_argument("--ckpt", default="checkpoints/main_food8.pth", type=str,
                         help="restore from checkpoint")
-    parser.add_argument("--continue_training", action='store_true', default=False)
+    parser.add_argument("--continue_training", action='store_true', default=False)#'./checkpoints/2best_quant_back_bone_VOC_os16.pth'"checkpoints/unet_res18_VOC.pth"
 
     parser.add_argument("--loss_type", type=str, default='cross_entropy',
                         choices=['cross_entropy', 'focal_loss'], help="You may add different loss types here")
@@ -191,37 +195,67 @@ def get_argparser():
 def get_train_val_dataset(opts):
     """ Dataset And Augmentation
     """
-    
-    train_transform = et.ExtCompose([
-        # et.ExtResize(size=opts.crop_size),
-        et.ExtRandomScale((0.5, 2.0)),
-        et.ExtRandomCrop(size=(opts.crop_size, opts.crop_size), pad_if_needed=True),
-        et.ExtRandomHorizontalFlip(),
-        ExtRandomBox(0,(50,100),p=1),  # Add black square
-        et.ExtToTensor(),
-        et.ExtNormalize(mean=[0.485, 0.456, 0.406],
-                        std=[0.229, 0.224, 0.225]),
-    ])
-    
-    if opts.crop_val:
-        val_transform = et.ExtCompose([
-            et.ExtResize(opts.crop_size),
-            et.ExtCenterCrop(opts.crop_size),
-            ExtRandomBox(0,(50,100),p=1),
+    if opts.dataset_name == 'voc':
+        train_transform = et.ExtCompose([
+            # et.ExtResize(size=opts.crop_size),
+            et.ExtRandomScale((0.5, 2.0)),
+            et.ExtRandomCrop(size=(opts.crop_size, opts.crop_size), pad_if_needed=True),
+            et.ExtRandomHorizontalFlip(),
+            ExtRandomBox(0,(50,100)),  # Add black square
             et.ExtToTensor(),
             et.ExtNormalize(mean=[0.485, 0.456, 0.406],
                             std=[0.229, 0.224, 0.225]),
         ])
+        
+        if opts.crop_val:
+            val_transform = et.ExtCompose([
+                et.ExtResize(opts.crop_size),
+                et.ExtCenterCrop(opts.crop_size),
+                ExtRandomBox(0,(50,100)),
+                et.ExtToTensor(),
+                et.ExtNormalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225]),
+            ])
+        else:
+            val_transform = et.ExtCompose([
+                ExtRandomBox(0, (50, 100)),
+                et.ExtToTensor(),
+                et.ExtNormalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225]),
+            ])
+        train_dst = VOCSegmentation(root=opts.data_root, image_set='train', transform=train_transform)
+        val_dst = VOCSegmentation(root=opts.data_root, image_set='val', transform=val_transform)
+    elif opts.dataset_name == 'food8':
+        print("bingulongulous")
+        train_transform = et.ExtCompose([
+            et.ExtRandomScale((0.5, 2.0)),
+            et.ExtRandomCrop(size=(opts.crop_size, opts.crop_size), pad_if_needed=True),
+            # ExtRandomBox(0,(50,100)),
+            et.ExtRandomHorizontalFlip(),
+            et.ExtToTensor(),
+            et.ExtNormalize(mean=[0.485, 0.456, 0.406],
+                            std=[0.229, 0.224, 0.225]),
+        ])
+
+        if opts.crop_val:
+            val_transform = et.ExtCompose([
+                et.ExtResize(opts.crop_size),
+                et.ExtCenterCrop(opts.crop_size),
+                # ExtRandomBox(0,(50,100)),
+                et.ExtToTensor(),
+                et.ExtNormalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225]),
+            ])
+        else:
+            val_transform = et.ExtCompose([
+                et.ExtToTensor(),
+                et.ExtNormalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225]),
+            ])
+        train_dst = Food8Segmentation(root=opts.data_root, image_set='train', transform=train_transform)
+        val_dst = Food8Segmentation(root=opts.data_root, image_set='val', transform=val_transform)
     else:
-        val_transform = et.ExtCompose([
-            ExtRandomBox(0, (50, 100),p=1),
-            et.ExtToTensor(),
-            et.ExtNormalize(mean=[0.485, 0.456, 0.406],
-                            std=[0.229, 0.224, 0.225]),
-        ])
-    
-    train_dst = VOCSegmentation(root=opts.data_root, image_set='train', transform=train_transform)
-    val_dst = VOCSegmentation(root=opts.data_root, image_set='val', transform=val_transform)
+        raise ValueError(f"Unknown dataset {opts.dataset_name}")
     
     return train_dst, val_dst
 
@@ -251,7 +285,7 @@ def validate(opts, model, loader, device, metrics, ret_samples_ids=None):
             if ret_samples_ids is not None and j in ret_samples_ids:  # get vis samples
                 ret_samples.append(
                     (images[0].detach().cpu().numpy(), targets[0], preds[0]))
-            
+
             if opts.save_val_results and j < 1:
                 for i in range(len(images)):
                     image = images[i].detach().cpu().numpy()
@@ -262,7 +296,7 @@ def validate(opts, model, loader, device, metrics, ret_samples_ids=None):
                     target = loader.dataset.decode_target(target).astype(np.uint8)
                     pred = loader.dataset.decode_target(pred).astype(np.uint8)
                     
-                    if (i == 30 or i == 0 or i == 1 or i == 7): 
+                    if (i == 30 or i == 0 or i == 17 or i == 8): 
                         # Image.fromarray(image).save('results/food_main_%d_image.png' % img_id)
                         # Image.fromarray(target).save('results/food_main_%d_target.png' % img_id)
                         # Image.fromarray(pred).save('results/food_main_%d_pred.png' % img_id)
@@ -274,7 +308,7 @@ def validate(opts, model, loader, device, metrics, ret_samples_ids=None):
                         ax = plt.gca()
                         ax.xaxis.set_major_locator(matplotlib.ticker.NullLocator())
                         ax.yaxis.set_major_locator(matplotlib.ticker.NullLocator())
-                        plt.savefig('results/voc_deeplab_mobilenet_%d_overlay.png' % img_id, bbox_inches='tight', pad_inches=0)
+                        plt.savefig('results/food_fcn_%d_overlay.png' % img_id, bbox_inches='tight', pad_inches=0)
                         plt.close()
                         img_id += 1
 
@@ -285,7 +319,7 @@ def validate(opts, model, loader, device, metrics, ret_samples_ids=None):
 def main():
     opts = get_argparser().parse_args()
     # TODO: you should fill the num_classes here. Don't forget to add the background class
-    opts.num_classes = 20 + 1
+    # opts.num_classes = 20 + 1
 
     #os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -307,14 +341,13 @@ def main():
     val_loader = data.DataLoader(
         val_dst, batch_size=opts.val_batch_size, shuffle=False, num_workers=2)
     print("Dataset: %s, Train set: %d, Val set: %d" %
-          ("VOC", len(train_dst), len(val_dst)))
+          (opts.dataset_name, len(train_dst), len(val_dst)))
 
     # Set up model (all models are 'constructed at network.modeling)
-    # model = UNet(backbone_name='resnet18')
-    # model = torchvision.models.segmentation.deeplabv3_mobilenet_v3_large(num_classes=21)
-    # model = torchvision.models.segmentation.fcn_resnet50(num_classes=21)
-    model = Goon(classes=21)
-    # model = UNet(backbone_name="resnet18", classes=21)
+    # model = torchvision.models.segmentation.deeplabv3_mobilenet_v3_large(num_classes=9)
+    # model = torchvision.models.segmentation.fcn_resnet50(num_classes=9)
+    model = Goon(classes=9, quantize=False)
+    # model = UNet(backbone_name="resnet18", classes=9)
     if opts.separable_conv and 'plus' in opts.model:
         network.convert_to_separable_conv(model.classifier)
     utils.set_bn_momentum(model, momentum=0.01)
@@ -326,7 +359,7 @@ def main():
     # Set up optimizer 
     # TODO Problem 3.1
     # please check argument parser for learning rate reference.
-    optimizer = torch.optim.Adam([{'params': model.parameters(), 'lr':1e-5}])
+    optimizer = torch.optim.Adam([{'params': model.parameters(), 'lr':1e-4}])
 
     # Set up Learning Rate Policy
     # TODO Problem 3.1
@@ -342,9 +375,9 @@ def main():
     # please check argument parser for loss function.
     # in 3.3, please use CrossEntropyLoss.
     if opts.loss_type == 'cross_entropy':
-        criterion = nn.CrossEntropyLoss(ignore_index=255, reduction='mean')
+        criterion = nn.CrossEntropyLoss(ignore_index=15, reduction='mean')
     elif opts.loss_type == 'focal_loss':
-        criterion = utils.FocalLoss(ignore_index=255, size_average=True)
+        criterion = utils.FocalLoss(ignore_index=15, size_average=True)
     
     def save_ckpt(path):
         """ save current model
@@ -358,9 +391,17 @@ def main():
     cur_itrs = 0
     cur_epochs = 0
     if opts.ckpt is not None and os.path.isfile(opts.ckpt):
+        print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
         checkpoint = torch.load(opts.ckpt, map_location=torch.device('cpu'))
+        del checkpoint['final_conv.weight']
+        del checkpoint['final_conv.bias']
+        checkpoint['final_conv.weight'] = torch.empty(9, 16, 1, 1)
+        nn.init.uniform_(checkpoint['final_conv.weight'])
+        # print(checkpoint['final_conv.weight'].shape)
+        checkpoint['final_conv.bias'] = torch.empty(9)
+        nn.init.uniform_(checkpoint['final_conv.bias'])
         model.load_state_dict(checkpoint)
-        #model = nn.DataParallel(model)
+        # #model = nn.DataParallel(model)
         model.to(device)
         if opts.continue_training:
             optimizer.load_state_dict(checkpoint["optimizer_state"])
@@ -401,8 +442,8 @@ def main():
             # TODO Please finish the main training loop and record the mIoU
             # Problem 3.3 & Problem 3.4
             optimizer.zero_grad()
+            # print(images)
             outputs = model(images)
-
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -423,12 +464,13 @@ def main():
                     pickle.dump(mIoU_per_epoch, f)
                 return
 
-        # evaluation after each epoch
-        # save_ckpt('checkpoints/latest_VOC_deeplabv3_plus_resnet50_FINAL.pth')
+        # # evaluation after each epoch
+        # save_ckpt('checkpoints/latest_res_no_box_unet%s_%s_os%d.pth' %
+        #             (opts.model, opts.dataset_name, opts.output_stride))
         print()
-        print("unet_VOC")
+        print("main_food8")
         print()
-    
+
         print("validation...")
         model.eval()
         val_score, ret_samples = validate(
